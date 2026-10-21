@@ -12,6 +12,40 @@ import { UserCancelError } from "../../src/error";
 import { MockTools } from "./utils";
 
 describe("FxCoreClient", () => {
+  it("PUB-02: preserves the combined result and typed SharePoint input", async () => {
+    const result = {
+      packagePath: "agent.zip",
+      tenantId: "tenant",
+      recoveryFile: "journal.json",
+      sharePoint: {
+        stage: "verified" as const,
+        productId: "product",
+        version: "1.0.0.0",
+        sha256: "hash",
+      },
+      agent: {
+        stage: "submitted" as const,
+        manifestId: "agent",
+        version: "1.0.0",
+        sha256: "hash",
+      },
+    };
+    const publish = vi
+      .spyOn(FxCore.prototype, "publishTeamsAppCLIV3")
+      .mockResolvedValue(ok(result));
+    const client = new FxCoreClient(new MockTools());
+    expect(
+      await client.publish({
+        platform: Platform.CLI,
+        projectPath: ".",
+        "package-file": "agent.zip",
+        "sharepoint-package-file": "solution.sppkg",
+      })
+    ).toEqual(ok(result));
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ "sharepoint-package-file": "solution.sppkg" })
+    );
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });

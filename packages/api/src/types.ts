@@ -164,8 +164,50 @@ export interface CreateProjectResult {
 export interface TeamsAppInputs extends InputsWithProjectPath {
   "manifest-file"?: string;
   "package-file"?: string;
+  /** Standalone SPFx package; relative paths resolve against projectPath. */
+  "sharepoint-package-file"?: string;
+  /** Optional tenant GUID constraint for SharePoint-enabled publication, checked before writes. */
+  expectedTenantId?: string;
+  /** Optional selector digest binding, checked against the local SharePoint snapshot before auth. */
+  expectedSharePointSha256?: string;
   "output-package-file"?: string;
   "output-folder"?: string;
   env?: string;
   "env-file"?: string;
+}
+
+export interface SharePointPackageResult {
+  stage: "notStarted" | "uploaded" | "deployed" | "verified" | "failed" | "unknownOutcome";
+  lastSuccessfulStage?: "uploaded" | "deployed" | "verified";
+  productId: string;
+  version: string;
+  sha256: string;
+  catalogUrl?: string;
+  catalogItemId?: string;
+}
+
+export interface CombinedPublishResult {
+  packagePath: string;
+  tenantId: string;
+  sharePoint: SharePointPackageResult;
+  agent: {
+    stage: "notStarted" | "submitted" | "failed" | "cancelled" | "unknownOutcome";
+    manifestId: string;
+    version: string;
+    sha256: string;
+    catalogId?: string;
+    diagnostic?: PublishRequestDiagnostic;
+  };
+  recoveryFile: string;
+}
+
+/** Allowlisted, sanitized request evidence; never contains tokens or raw HTTP objects. */
+export interface PublishRequestDiagnostic {
+  target: "sharePoint" | "agentCatalogRead" | "agentSubmit";
+  operation?: "create" | "update";
+  status?: number;
+  serviceCode?: string;
+  serviceMessage?: string;
+  requestId?: string;
+  transportCode?: string;
 }

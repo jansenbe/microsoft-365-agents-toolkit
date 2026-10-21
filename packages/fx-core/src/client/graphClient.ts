@@ -14,6 +14,7 @@ import {
   SystemError,
 } from "@microsoft/teamsfx-api";
 import { AxiosInstance } from "axios";
+import { createHash } from "crypto";
 import {
   getResourceServiceEndpoint,
   GraphScopes,
@@ -33,6 +34,7 @@ import { getDefaultString, getLocalizedString } from "../common/localizeUtils";
 import { waitSeconds } from "../common/utils";
 import { WrappedAxiosClient } from "../common/wrappedAxiosClient";
 import { RetryHandler } from "../common/retryHandler";
+import { remotePublishError } from "../error/publish";
 import { CreateChannelResponse } from "./interfaces/CreateChannelResponse";
 import { CreateTeamAndChannelResponse } from "./interfaces/CreateTeamAndChannelResponse";
 import { GetAppInstallationResponse } from "./interfaces/GetAppInstallationResponse";
@@ -53,6 +55,12 @@ const GeneralLabelDisplayName = "General";
 const listSensitivityLabelCacheKeyPrefix = "listSensitivityLabelCacheKey";
 const teamsAppsPath = `/appCatalogs/teamsApps`;
 
+export interface PublishCatalogSnapshot {
+  catalogId?: string;
+  versions: string[];
+  fingerprint: string;
+}
+
 export class GraphClient {
   private readonly baseUrl: string =
     process.env.GRAPH_ENDPOINT ?? `${getResourceServiceEndpoint(ResourceServiceType.Graph)}/beta`;
@@ -70,6 +78,107 @@ export class GraphClient {
     });
     instance.defaults.headers.common["Authorization"] = `Bearer ${token}`;
     return instance;
+  }
+
+  /** Strict read for coordinated publication: an unavailable catalog is not an absent app. */
+  public async getPublishSnapshot(
+    token: string,
+    externalId: string,
+    signal?: AbortSignal
+  ): Promise<PublishCatalogSnapshot> {
+    const response = await this.createRequesterWithToken(token)
+      .get<unknown>(
+        `${teamsAppsPath}?$filter=externalId eq '${encodeURIComponent(externalId)}'&$expand=appDefinitions`,
+        { signal, timeout: 30000, maxRedirects: 0, headers: { Accept: "application/json" } }
+      )
+      .catch((error: unknown) => {
+        throw remotePublishError(error, "agentCatalogRead");
+      });
+    const data = response.data;
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !("value" in data) ||
+      !Array.isArray(data.value) ||
+      data.value.length > 1 ||
+      "@odata.nextLink" in data
+    ) {
+      throw remotePublishError({ response }, "agentCatalogRead");
+    }
+    if (data.value.length === 0) return { versions: [], fingerprint: "absent" };
+    const item: unknown = data.value[0];
+    if (
+      !item ||
+      typeof item !== "object" ||
+      !("id" in item) ||
+      typeof item.id !== "string" ||
+      !item.id ||
+      !("appDefinitions" in item) ||
+      !Array.isArray(item.appDefinitions)
+    ) {
+      throw remotePublishError({ response }, "agentCatalogRead");
+    }
+    const definitions: string[] = [];
+    const versions: string[] = [];
+    for (const definition of item.appDefinitions) {
+      const value: unknown = definition;
+      if (
+        !value ||
+        typeof value !== "object" ||
+        !("id" in value) ||
+        typeof value.id !== "string" ||
+        !("version" in value) ||
+        typeof value.version !== "string" ||
+        !("publishingState" in value) ||
+        typeof value.publishingState !== "string"
+      ) {
+        throw remotePublishError({ response }, "agentCatalogRead");
+      }
+      definitions.push(JSON.stringify([value.id, value.version, value.publishingState]));
+      versions.push(value.version);
+    }
+    return {
+      catalogId: item.id,
+      versions,
+      fingerprint: createHash("sha256")
+        .update(JSON.stringify([item.id, definitions.sort()]))
+        .digest("hex"),
+    };
+  }
+
+  /** The same organization submission, without retries on an ambiguous non-idempotent POST. */
+  public async submitPreparedAppForReview(
+    token: string,
+    file: Buffer,
+    catalogId?: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const target = catalogId
+      ? `${teamsAppsPath}/${encodeURIComponent(catalogId)}/appDefinitions`
+      : teamsAppsPath;
+    const response = await this.createRequesterWithToken(token)
+      .post<unknown>(`${target}?requiresReview=true`, file, {
+        signal,
+        timeout: 60000,
+        maxRedirects: 0,
+        headers: { "Content-Type": "application/zip", Accept: "application/json" },
+      })
+      .catch((error: unknown) => {
+        throw remotePublishError(error, "agentSubmit", catalogId ? "update" : "create");
+      });
+    const data = response.data;
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !("id" in data) ||
+      typeof data.id !== "string" ||
+      !data.id ||
+      "error" in data ||
+      "errorMessage" in data
+    ) {
+      throw remotePublishError({ response }, "agentSubmit", catalogId ? "update" : "create");
+    }
+    return catalogId ?? data.id;
   }
 
   @hooks([ErrorContextMW({ source: "Graph", component: "GraphAPIClient" })])
@@ -351,11 +460,7 @@ export class GraphClient {
           return await this.publishTeamsAppUpdate(token, teamsAppExternalId, file);
         }
 
-        const errorMessage =
-          response.data.error?.message || JSON.stringify(response.data.error) || "unknown error";
-        throw new Error(
-          getDefaultString("error.graphAPI.apiFailed.message", "publishTeamsApp", errorMessage)
-        );
+        throw remotePublishError({ response }, "agentSubmit", "create");
       }
 
       if (response?.data?.id) {
@@ -378,13 +483,7 @@ export class GraphClient {
       if (error?.response?.status === 409) {
         return await this.publishTeamsAppUpdate(token, teamsAppExternalId, file);
       }
-      throw new Error(
-        getDefaultString(
-          "error.graphAPI.apiFailed.message",
-          "publishTeamsApp",
-          this.getGraphErrorMessage(error)
-        )
-      );
+      throw remotePublishError(error, "agentSubmit", "create");
     }
   }
 
@@ -417,15 +516,7 @@ export class GraphClient {
       );
 
       if (response?.data?.error || response?.data?.errorMessage) {
-        const errorMessage =
-          response.data.error?.message || response.data.errorMessage || "unknown error";
-        throw new Error(
-          getDefaultString(
-            "error.graphAPI.apiFailed.message",
-            "publishTeamsAppUpdate",
-            errorMessage
-          )
-        );
+        throw remotePublishError({ response }, "agentSubmit", "update");
       }
       if (response?.data?.teamsAppId) {
         return response.data.teamsAppId;
@@ -435,32 +526,8 @@ export class GraphClient {
       }
       return appDefinition.teamsAppId;
     } catch (error: any) {
-      throw new Error(
-        getDefaultString(
-          "error.graphAPI.apiFailed.message",
-          "publishTeamsAppUpdate",
-          this.getGraphErrorMessage(error)
-        )
-      );
+      throw remotePublishError(error, "agentSubmit", "update");
     }
-  }
-
-  private getGraphErrorMessage(error: any): string {
-    const responseError = error?.response?.data?.error;
-    const details = responseError?.innerError?.details;
-    const detailMessage = Array.isArray(details)
-      ? details
-          .map((detail: any) => detail?.message)
-          .filter(Boolean)
-          .join("; ")
-      : undefined;
-    return (
-      detailMessage ||
-      responseError?.message ||
-      error?.response?.data?.errorMessage ||
-      error?.message ||
-      "unknown error"
-    );
   }
 
   /**
@@ -623,7 +690,9 @@ export class GraphClient {
   }
 
   public async getGroupInfo(email: string): Promise<Group | undefined> {
-    const tokenResponse = await this.tokenProvider.getAccessToken({ scopes: GroupSearchScopes });
+    const tokenResponse = await this.tokenProvider.getAccessToken({
+      scopes: GroupSearchScopes,
+    });
     if (tokenResponse.isErr()) {
       throw tokenResponse.error;
     }

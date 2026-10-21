@@ -1197,7 +1197,9 @@ export class FxCore extends FxCoreOpenPluginPart {
     ErrorContextMW({ component: "FxCore", stage: "publishTeamsAppCLIV3", reset: true }),
     ErrorHandlerMW,
   ])
-  async publishTeamsAppCLIV3(inputs: TeamsAppInputs): Promise<Result<undefined, FxError>> {
+  async publishTeamsAppCLIV3(
+    inputs: TeamsAppInputs
+  ): ReturnType<typeof teamsappMgr.publishTeamsApp> {
     const res = await teamsappMgr.publishTeamsApp(inputs);
     return res;
   }

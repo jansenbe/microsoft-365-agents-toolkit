@@ -23,6 +23,15 @@ SPFx project creation/import and `atk add spfx-web-part` (including the legacy
 directly to create solutions and add web parts. Deployment and publishing of
 existing Toolkit SPFx projects remain unchanged.
 
+## SharePoint-first publish prototype
+
+The optional `atk publish --sharepoint-package-file <file.sppkg>` deploys and
+verifies a standalone SharePoint package before submitting the independent
+agent/app package to the organization catalog for review. Without it, ordinary
+publish is unchanged. See the [local build and testing guide](../../docs/03-specs/scenarios/publishing/prototype-testing.md)
+for the isolated executable, account selection, two-package examples and partial
+failure recovery. It does not synchronize to Teams or approve/install an agent.
+
 ## Feedback
 
 - Ask a question on [Stack Overflow](https://stackoverflow.com/questions/tagged/teams-toolkit)

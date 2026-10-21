@@ -20,12 +20,13 @@ import { NoValidAppCatelog } from "../../../../../src/component/driver/deploy/sp
 import { UploadAppPackageFailedError } from "../../../../../src/component/driver/deploy/spfx/error/uploadAppPackageFailedError";
 import { DeploySPFxArgs } from "../../../../../src/component/driver/deploy/spfx/interface/deployArgs";
 import { Constants } from "../../../../../src/component/driver/deploy/spfx/utility/constants";
-import { SPOClient } from "../../../../../src/component/driver/deploy/spfx/utility/spoClient";
+import { SPOClient as SPOClientClass } from "../../../../../src/component/driver/deploy/spfx/utility/spoClient";
 import { FileNotFoundError } from "../../../../../src/error/common";
 import { MockedM365Provider } from "../../../../core/utils";
 import { MockedLogProvider, MockedUserInteraction } from "../../../../plugins/solution/util";
 
 const expect = chai.expect;
+const SPOClient = SPOClientClass.prototype;
 
 async function assertRejected(promise: Promise<any>, errorType: any): Promise<void> {
   let error: any;

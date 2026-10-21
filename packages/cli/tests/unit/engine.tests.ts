@@ -586,6 +586,44 @@ describe("CLI Engine", () => {
     });
   });
   describe("start", async () => {
+    it("PUB-02: interactive combined publish preserves both explicit package paths", async () => {
+      vi.spyOn(activate, "getFxCore").mockReturnValue(new FxCore({} as any));
+      const publish = vi
+        .spyOn(FxCore.prototype, "publishTeamsAppCLIV3")
+        .mockResolvedValue(ok(undefined));
+      process.argv = [
+        "node",
+        "cli",
+        "publish",
+        "--package-file",
+        "selected-agent.zip",
+        "--sharepoint-package-file",
+        "selected.sppkg",
+        "--interactive",
+        "true",
+      ];
+      await engine.start(rootCommand);
+      assert.equal(publish.mock.calls[0][0]["package-file"], "selected-agent.zip");
+      assert.equal(publish.mock.calls[0][0]["sharepoint-package-file"], "selected.sppkg");
+    });
+    it("PUB-01: ordinary interactive publish retains its existing option-filtering behavior", async () => {
+      vi.spyOn(activate, "getFxCore").mockReturnValue(new FxCore({} as any));
+      const publish = vi
+        .spyOn(FxCore.prototype, "publishTeamsAppCLIV3")
+        .mockResolvedValue(ok(undefined));
+      process.argv = [
+        "node",
+        "cli",
+        "publish",
+        "--package-file",
+        "agent.zip",
+        "--interactive",
+        "true",
+      ];
+      await engine.start(rootCommand);
+      assert.isUndefined(publish.mock.calls[0][0]["package-file"]);
+      assert.isUndefined(publish.mock.calls[0][0]["sharepoint-package-file"]);
+    });
     it("command not found", async () => {
       process.argv = ["node", "cli", "abc123"] as any;
       const stub = vi.spyOn(engine, "printError").mockReturnValue();

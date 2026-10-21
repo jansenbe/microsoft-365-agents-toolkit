@@ -1145,7 +1145,10 @@ describe("CLI commands", () => {
     it("success with env", async () => {
       vi.spyOn(envUtil, "resetEnv").mockResolvedValue();
       const ctx: CLIContext = {
-        command: { ...envAddCommand, fullName: `${process.env.TEAMSFX_CLI_BIN_NAME} env reset` },
+        command: {
+          ...envAddCommand,
+          fullName: `${process.env.TEAMSFX_CLI_BIN_NAME} env reset`,
+        },
         optionValues: { env: "dev", projectPath: "." },
         globalOptionValues: {},
         argumentValues: [],
@@ -1157,7 +1160,10 @@ describe("CLI commands", () => {
     it("success with env file", async () => {
       vi.spyOn(envUtil, "resetEnvFile").mockResolvedValue();
       const ctx: CLIContext = {
-        command: { ...envAddCommand, fullName: `${process.env.TEAMSFX_CLI_BIN_NAME} env reset` },
+        command: {
+          ...envAddCommand,
+          fullName: `${process.env.TEAMSFX_CLI_BIN_NAME} env reset`,
+        },
         optionValues: { "env-file": ".env.dev" },
         globalOptionValues: {},
         argumentValues: [],
@@ -1896,6 +1902,27 @@ describe("CLI commands", () => {
       };
       const res = await teamsappPublishCommand.handler!(ctx);
       assert.isTrue(res.isOk());
+    });
+    it("PUB-02: publish forwards distinct agent and SharePoint package inputs", async () => {
+      vi.spyOn(activate, "getFxCore").mockReturnValue(new FxCore({} as any));
+      const publish = vi
+        .spyOn(FxCore.prototype, "publishTeamsAppCLIV3")
+        .mockResolvedValue(ok(undefined));
+      const ctx: CLIContext = {
+        command: { ...teamsappPublishCommand, fullName: "atk publish" },
+        optionValues: {
+          "package-file": "agent.zip",
+          "sharepoint-package-file": "solution.sppkg",
+        },
+        globalOptionValues: {},
+        argumentValues: [],
+        telemetryProperties: {},
+      };
+      assert.isTrue((await teamsappPublishCommand.handler!(ctx)).isOk());
+      assert.deepEqual(publish.mock.calls[0][0], ctx.optionValues);
+      assert.isTrue(
+        teamsappPublishCommand.options!.some((option) => option.name === "sharepoint-package-file")
+      );
     });
     it("publish conflict", async () => {
       vi.spyOn(activate, "getFxCore").mockReturnValue(new FxCore({} as any));

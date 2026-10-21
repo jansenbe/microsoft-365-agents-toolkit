@@ -3,6 +3,7 @@
 
 import {
   FxError,
+  CombinedPublishResult,
   Inputs,
   InputsWithProjectPath,
   Result,
@@ -42,6 +43,10 @@ export interface FxCorePackageResult {
 
 export interface FxCorePublishResult {
   packagePath: string;
+  tenantId?: string;
+  sharePoint?: CombinedPublishResult["sharePoint"];
+  agent?: CombinedPublishResult["agent"];
+  recoveryFile?: string;
 }
 
 export type FxCoreValidationSeverity = "error" | "warning" | "info";
@@ -204,6 +209,8 @@ export class FxCoreClient implements IFxCoreClient {
     const clientInputs = this.withSignal(inputs, options?.signal);
     const result = await this.core.publishTeamsAppCLIV3(clientInputs);
     if (result.isErr()) return err(result.error);
+    // A completed coordinated operation must not lose its durable side effects to a late abort.
+    if (result.value) return ok(result.value);
     const afterOperation = this.cancelled<FxCorePublishResult>(options?.signal);
     if (afterOperation) return afterOperation;
     return ok({ packagePath: clientInputs["package-file"] as string });

@@ -2,9 +2,10 @@
 // Licensed under the MIT license.
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import { chai, vi } from "vitest";
-import { SPOClient } from "../../../../../src/component/driver/deploy/spfx/utility/spoClient";
+import { SPOClient as SPOClientClass } from "../../../../../src/component/driver/deploy/spfx/utility/spoClient";
 
 const expect = chai.expect;
+const SPOClient = new SPOClientClass("https://tenant.sharepoint.com");
 
 describe("SPFx SPO Client", async () => {
   afterEach(() => {

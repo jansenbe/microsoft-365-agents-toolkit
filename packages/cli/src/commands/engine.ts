@@ -267,6 +267,15 @@ class CLIEngine {
         "platform",
         "nonInteractive",
       ]);
+      if (
+        context.command.name === "publish" &&
+        context.optionValues["sharepoint-package-file"] !== undefined
+      ) {
+        // Combined publish uses interactive mode for confirmations, not artifact selection.
+        reservedOptionNames.push(
+          ...(context.command.options || []).map((option) => this.optionInputKey(option))
+        );
+      }
       const trimOptionValues = pick(context.optionValues, reservedOptionNames);
       if (
         Object.keys(trimOptionValues).length < Object.keys(context.optionValues).length ||

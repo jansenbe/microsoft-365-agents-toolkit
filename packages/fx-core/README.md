@@ -2,6 +2,45 @@
 
 The TeamsFx Core package implements shared capabilities for Microsoft 365 Agents Toolkit IDE Extensions and the CLI through API contracts defined in the [api](/packages/api).
 
+## SharePoint publishing prototype SDK
+
+`FxCoreClient.publish` accepts `TeamsAppInputs["sharepoint-package-file"]` for
+SharePoint-first deployment and verification before organization submission.
+Optional `expectedTenantId` constrains the actual selected tenant for this
+combined path; omit the SharePoint property for unchanged ordinary publishing.
+Optional `expectedSharePointSha256` binds an earlier local selector result to the
+actual package snapshot and is checked before authentication or remote work.
+Pass an `AbortSignal` through the existing execution options. Preserve
+`CombinedPublishError.publishResult` on failure instead of masking it with a
+host timeout or treating a rejected submission as success.
+
+The supported local inspector is exported from both the core root and the lean
+entry `@microsoft/teamsfx-core/build/sharepointPackage`:
+
+```typescript
+readSharePointPackage(
+  file: string,
+  projectPath: string,
+  options?: SharePointPackageReadOptions
+): Promise<Result<SharePointPackage, FxError>>
+```
+
+It reads a bounded snapshot without building, extracting, authenticating,
+contacting a service, writing a journal, or loading toolkit resources. The result
+contains `bytes`, `fileName`, `productId`, `version`, `skipFeatureDeployment` and
+`sha256`; callers must treat the returned byte snapshot as immutable and must not
+include raw bytes in human/JSON status output. Error messages default to stable
+codes (`InvalidPackage`, `UnreadablePackage`, `ChangedPackage`).
+`options.errorFactory?: (code: SharePointPackageReadErrorCode) => FxError` lets an
+offline host provide its own localized errors without any toolkit assets.
+The publication pipeline supplies ATK's localized factory itself.
+
+Hosts must provide real human confirmation for required updates; do not reuse a
+headless UI that automatically accepts modal prompts. Confirmation identifies
+the package, product/manifest ID, version and intended action. Noninteractive
+updates remain refused. Submission is for organization review, not personal
+sideloading, approval or installation.
+
 ## Data Collection.
 
 The software may collect information about you and your use of the software and send it to Microsoft. Microsoft may use this information to provide services and improve our products and services. You may turn off the telemetry as described in the repository. There are also some features in the software that may enable you and Microsoft to collect data from users of your applications. If you use these features, you must comply with applicable law, including providing appropriate notices to users of your applications together with a copy of Microsoft's privacy statement. Our privacy statement is located at https://go.microsoft.com/fwlink/?LinkID=824704. You can learn more about data collection and use in the help documentation and our privacy statement. Your use of the software operates as your consent to these practices.

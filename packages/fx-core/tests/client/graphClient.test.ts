@@ -859,6 +859,35 @@ describe("Teams app publish APIs", () => {
     chai.expect(postStub.mock.calls[0][0]).to.contain("/appCatalogs/teamsApps?requiresReview=true");
   });
 
+  it("PUB-07: ordinary publishing retains safe Graph rejection evidence without changing its request", async () => {
+    const requestId = "44444444-4444-4444-8444-4444444444dd";
+    const post = vi.spyOn(fakeAxiosInstance, "post").mockRejectedValue({
+      response: {
+        status: 403,
+        headers: { "request-id": requestId },
+        data: { error: { code: "Forbidden", message: "Organization submission denied." } },
+      },
+      config: { headers: { Authorization: "Bearer ordinary-secret-canary" } },
+    });
+    vi.spyOn(RetryHandler, "Retry").mockImplementation(async (fn) => await fn());
+    let caught: unknown;
+    try {
+      await graphClient.publishTeamsApp("token", "external-id", Buffer.from("zip"));
+    } catch (error) {
+      caught = error;
+    }
+    chai.expect(caught).to.have.nested.property("diagnostic.status", 403);
+    chai.expect(caught).to.have.nested.property("diagnostic.requestId", requestId);
+    chai.expect(JSON.stringify(caught)).not.to.include("ordinary-secret-canary");
+    chai
+      .expect(post.mock.calls[0])
+      .to.deep.equal([
+        "/appCatalogs/teamsApps?requiresReview=true",
+        Buffer.from("zip"),
+        { headers: { "Content-Type": "application/zip" } },
+      ]);
+  });
+
   it("publishTeamsApp should fallback to staged app id when response id is empty", async () => {
     vi.spyOn(fakeAxiosInstance, "post").mockResolvedValue({ data: {} } as any);
     vi.spyOn(RetryHandler, "Retry").mockImplementation(async (fn: any) => await fn());

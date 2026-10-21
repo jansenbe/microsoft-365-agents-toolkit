@@ -79,7 +79,7 @@ export class SPFxDeployDriver implements StepDriver {
 
     context.logProvider.debug(`Getting user tenant...`);
     const tenant = await this.getTenant(context.m365TokenProvider);
-    SPOClient.setBaseUrl(tenant);
+    const spoClient = new SPOClient(tenant, context.signal);
     context.logProvider.debug(`Succeeded to get user tenant: ${tenant}.`);
 
     const spoToken = await getSPFxToken(context.m365TokenProvider);
@@ -88,12 +88,12 @@ export class SPFxDeployDriver implements StepDriver {
     }
 
     context.logProvider.verbose(`Getting SharePoint app catalog site...`);
-    let appCatalogSite = await SPOClient.getAppCatalogSite(spoToken);
+    let appCatalogSite = await spoClient.getAppCatalogSite(spoToken);
     if (appCatalogSite) {
       context.logProvider.verbose(
         `Succeeded to get SharePoint app catalog site: ${appCatalogSite}.`
       );
-      SPOClient.setBaseUrl(appCatalogSite);
+      spoClient.setBaseUrl(appCatalogSite);
       context.addSummary(DeployProgressMessage.SkipCreateSPAppCatalog());
     } else {
       context.logProvider.verbose(
@@ -104,7 +104,7 @@ export class SPFxDeployDriver implements StepDriver {
           `Creating app catalog for user since there's no existing one...`
         );
         try {
-          await SPOClient.createAppCatalog(spoToken);
+          await spoClient.createAppCatalog(spoToken);
           context.addSummary(DeployProgressMessage.CreateSPAppCatalog());
           context.logProvider.verbose(`Succeeded to create app catalog.`);
         } catch (e) {
@@ -115,20 +115,20 @@ export class SPFxDeployDriver implements StepDriver {
       }
       let retry = 0;
       context.logProvider.verbose(`Getting newly created app catalog site...`);
-      appCatalogSite = await SPOClient.getAppCatalogSite(spoToken);
+      appCatalogSite = await spoClient.getAppCatalogSite(spoToken);
       while (appCatalogSite == null && retry < Constants.APP_CATALOG_MAX_TIMES) {
         void context.logProvider.warning(
           getLocalizedString("driver.spfx.warn.noTenantAppCatalogFound", retry)
         );
         await sleep(Constants.APP_CATALOG_REFRESH_TIME);
-        appCatalogSite = await SPOClient.getAppCatalogSite(spoToken);
+        appCatalogSite = await spoClient.getAppCatalogSite(spoToken);
         retry += 1;
       }
       if (appCatalogSite) {
         context.logProvider.verbose(
           `Succeeded to get newly created app catalog site: ${appCatalogSite}.`
         );
-        SPOClient.setBaseUrl(appCatalogSite);
+        spoClient.setBaseUrl(appCatalogSite);
         void context.logProvider.info(
           getLocalizedString("driver.spfx.info.tenantAppCatalogCreated", appCatalogSite)
         );
@@ -156,7 +156,7 @@ export class SPFxDeployDriver implements StepDriver {
     const bytes = await fs.readFile(appPackage);
     try {
       context.logProvider.verbose(`Uploading SharePoint app package ${fileName}...`);
-      await SPOClient.uploadAppPackage(spoToken, fileName, bytes);
+      await spoClient.uploadAppPackage(spoToken, fileName, bytes);
       context.addSummary(DeployProgressMessage.Upload());
       context.logProvider.verbose(`Succeeded to upload SharePoint app package.`);
     } catch (e: any) {
@@ -172,7 +172,7 @@ export class SPFxDeployDriver implements StepDriver {
     );
     const appID = await this.getAppID(packageSolutionPath);
     context.logProvider.verbose(`Deploying SharePoint app package with app id: ${appID}...`);
-    await SPOClient.deployAppPackage(spoToken, appID);
+    await spoClient.deployAppPackage(spoToken, appID);
     context.addSummary(DeployProgressMessage.Deploy());
     context.logProvider.verbose(`Succeeded to deploy SharePoint app package.`);
     const guidance = getLocalizedString(

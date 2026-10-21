@@ -23,6 +23,7 @@ import { AppStudioError } from "./errors";
 import { PublishAppPackageArgs } from "./interfaces/PublishAppPackageArgs";
 import { AppStudioResultFactory } from "./results";
 import { verifyLocalMCPPluginCerts } from "./utils/McpCertVerification";
+import { remotePublishError } from "../../../error/publish";
 import { TelemetryPropertyKey } from "./utils/telemetry";
 
 export const actionName = "teamsApp/publishAppPackage";
@@ -55,6 +56,27 @@ export class PublishAppPackageDriver implements StepDriver {
     context: WrapDriverContext,
     outputEnvVarNames?: Map<string, string>
   ): Promise<Result<Map<string, string>, FxError>> {
+    if (args.preparedPublication) {
+      const prepared = args.preparedPublication;
+      try {
+        const id = await prepared.graph.submitPreparedAppForReview(
+          prepared.token,
+          prepared.bytes,
+          prepared.snapshot.catalogId,
+          context.signal
+        );
+        context.logProvider.info(getLocalizedString("publish.sharepoint.Submitted"));
+        return ok(new Map([["TEAMS_APP_PUBLISHED_APP_ID", id]]));
+      } catch (error) {
+        return err(
+          remotePublishError(
+            error,
+            "agentSubmit",
+            prepared.snapshot.catalogId ? "update" : "create"
+          )
+        );
+      }
+    }
     if (
       process.env[FeatureFlagName.SovereignCloudEnvironment] === SovereignCloudEnvironment.GCCH ||
       process.env[FeatureFlagName.SovereignCloudEnvironment] === SovereignCloudEnvironment.DOD

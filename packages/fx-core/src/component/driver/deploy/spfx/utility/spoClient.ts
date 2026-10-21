@@ -2,87 +2,112 @@
 // Licensed under the MIT license.
 
 import axios, { AxiosInstance } from "axios";
+import { maxPackageBytes, record } from "./packageFile";
 
-// eslint-disable-next-line @typescript-eslint/no-namespace
-export namespace SPOClient {
-  let baseUrl = "";
+export function odataLiteral(value: string): string {
+  return encodeURIComponent(value.replace(/'/g, "''")).replace(/'/g, "%27");
+}
 
-  export function setBaseUrl(tenant: string) {
-    baseUrl = tenant;
+export function unwrap(value: unknown): Record<string, unknown> {
+  if (!record(value)) return {};
+  return record(value.d) ? value.d : value;
+}
+
+/** One instance per deployment; no shared tenant/catalog or token state. */
+export class SPOClient {
+  constructor(
+    private baseUrl: string,
+    private readonly signal?: AbortSignal
+  ) {}
+
+  public setBaseUrl(url: string): void {
+    this.baseUrl = url;
   }
 
-  /**
-   * Creates a new axios instance to call SharePoint Service to prevent setting the accessToken on global instance.
-   * @param {string}  spoToken
-   * @returns {AxiosInstance}
-   */
-  function createRequesterWithToken(spoToken: string): AxiosInstance {
+  private createRequesterWithToken(spoToken: string): AxiosInstance {
     const instance = axios.create({
-      baseURL: baseUrl,
+      baseURL: this.baseUrl,
+      signal: this.signal,
+      timeout: 30000,
+      maxRedirects: 0,
+      maxContentLength: maxPackageBytes,
     });
     instance.defaults.headers.common["Authorization"] = `Bearer ${spoToken}`;
     instance.defaults.headers.common["Client-Source"] = "teamstoolkit";
-    instance.interceptors.request.use(function (config) {
+    instance.defaults.headers.common["Accept"] = "application/json;odata=nometadata";
+    instance.interceptors.request.use((config) => {
       config.params = { teamstoolkit: true, ...config.params };
       return config;
     });
     return instance;
   }
 
-  /**
-   *
-   * @param spoToken
-   * @returns tenant app catalog URL
-   */
-  export async function getAppCatalogSite(spoToken: string): Promise<string | undefined> {
-    const requester = createRequesterWithToken(spoToken);
-    const res = await requester.get("/_api/SP_TenantSettings_Current");
-    if (res && res.data && res.data.CorporateCatalogUrl) {
-      return res.data.CorporateCatalogUrl;
-    } else {
-      return undefined;
-    }
+  public async getAppCatalogSite(spoToken: string): Promise<string | undefined> {
+    const response = await this.createRequesterWithToken(spoToken).get<unknown>(
+      "/_api/SP_TenantSettings_Current"
+    );
+    const url = unwrap(response.data).CorporateCatalogUrl;
+    return typeof url === "string" ? url : undefined;
   }
 
-  /**
-   *
-   * @param spoToken
-   * @param fileName - *.sppkg file name
-   * @param file - binary of *.sppkg
-   */
-  export async function uploadAppPackage(
+  public async uploadAppPackage(
     spoToken: string,
     fileName: string,
-    file: Buffer
-  ): Promise<any> {
-    const requester = createRequesterWithToken(spoToken);
-    await requester.post(
-      `/_api/web/tenantappcatalog/Add(overwrite=true, url='${fileName}')`,
+    file: Buffer,
+    overwrite = true
+  ): Promise<Record<string, unknown>> {
+    const response = await this.createRequesterWithToken(spoToken).post<unknown>(
+      `/_api/web/tenantappcatalog/Add(overwrite=${overwrite},url='${odataLiteral(fileName)}')`,
       file,
       {
         maxBodyLength: Infinity,
+        headers: { "Content-Type": "application/octet-stream" },
       }
     );
+    return unwrap(response.data);
   }
 
-  /**
-   *
-   * @param spoToken
-   * @param appId - appId in package-solution.json
-   */
-  export async function deployAppPackage(spoToken: string, appId: string): Promise<any> {
-    const deploySetting = {
-      skipFeatureDeployment: true,
-    };
-    const requester = createRequesterWithToken(spoToken);
-    await requester.post(
-      `/_api/web/tenantappcatalog/AvailableApps/GetById('${appId}')/Deploy`,
-      deploySetting
+  public async getApp(spoToken: string, id: string): Promise<Record<string, unknown> | undefined> {
+    try {
+      const response = await this.createRequesterWithToken(spoToken).get<unknown>(
+        `/_api/web/tenantappcatalog/AvailableApps/GetById('${odataLiteral(id)}')`
+      );
+      return unwrap(response.data);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) return undefined;
+      throw error;
+    }
+  }
+
+  public async getPackageName(spoToken: string, id: string): Promise<unknown> {
+    const response = await this.createRequesterWithToken(spoToken).get<unknown>(
+      `/_api/web/GetFileById('${odataLiteral(id)}')?$select=Name`
+    );
+    return unwrap(response.data).Name;
+  }
+
+  public async downloadPackage(spoToken: string, id: string): Promise<Buffer> {
+    const response = await this.createRequesterWithToken(spoToken).get<Buffer>(
+      `/_api/web/GetFileById('${odataLiteral(id)}')/$value`,
+      { responseType: "arraybuffer" }
+    );
+    return Buffer.from(response.data);
+  }
+
+  public async deployAppPackage(
+    spoToken: string,
+    appId: string,
+    skipFeatureDeployment = true
+  ): Promise<void> {
+    await this.createRequesterWithToken(spoToken).post(
+      `/_api/web/tenantappcatalog/AvailableApps/GetById('${odataLiteral(appId)}')/Deploy`,
+      { skipFeatureDeployment }
     );
   }
 
-  export async function createAppCatalog(spoToken: string): Promise<any> {
-    const requester = createRequesterWithToken(spoToken);
-    await requester.post(`/_api/web/EnsureTenantAppCatalog(callerId='teamsdev')`);
+  public async createAppCatalog(spoToken: string): Promise<void> {
+    await this.createRequesterWithToken(spoToken).post(
+      "/_api/web/EnsureTenantAppCatalog(callerId='teamsdev')"
+    );
   }
 }

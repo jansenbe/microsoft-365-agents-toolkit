@@ -21,6 +21,11 @@ export const teamsappPublishCommand: CLICommand = {
   options: [
     TeamsAppManifestFileOption,
     TeamsAppPackageOption,
+    {
+      name: "sharepoint-package-file",
+      type: "string",
+      description: commands.publish.options["sharepoint-package-file"],
+    },
     TeamsAppOuputPackageOption,
     TeamsAppOutputFolderOption,
     EnvOption,
@@ -39,6 +44,6 @@ export const teamsappPublishCommand: CLICommand = {
     }
     const core = getFxCore();
     const res = await core.publishTeamsAppCLIV3(inputs);
-    return res;
+    return res.map(() => undefined);
   },
 };

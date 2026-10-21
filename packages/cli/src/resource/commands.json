@@ -182,7 +182,10 @@
     }
   },
   "publish": {
-    "description": "Run the publish stage in m365agents.yml."
+    "description": "Submit an app package to the organization catalog for review.",
+    "options": {
+      "sharepoint-package-file": "Deploy and verify this standalone .sppkg in the tenant SharePoint app catalog BEFORE submitting the agent/app package. Relative to --folder."
+    }
   },
   "share": {
     "description": "Run the 'share stage' in m365agents.yml or share the app with other users."

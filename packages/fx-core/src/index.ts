@@ -17,6 +17,8 @@ import { installGlobalProxyInterceptor } from "./common/httpProxy";
 installGlobalProxyInterceptor();
 
 export { GraphClient } from "./client/graphClient";
+export * from "./sharepointPackage";
+export { CombinedPublishError } from "./component/driver/teamsApp/sharePointPublish";
 export { teamsDevPortalClient } from "./client/teamsDevPortalClientProvider";
 export {
   getDefaultAuthorityUrl,
