@@ -63,10 +63,6 @@ pnpm --filter @microsoft/m365agentstoolkit-cli exec vitest run `
   tests\unit\helper.tests.ts --config vitest.config.ts
 ```
 
-See the [portable SDK packaging recipe](../../../../.github/scripts/sdk-prototype/README.md)
-for versioned tarballs, dependency locks, resource inventories, type checks and
-strict relocated-consumer verification.
-
 ## Explicitly authorized live testing
 
 **Publishing mutates remote catalogs.** Select the exact project, agent ZIP,
@@ -214,8 +210,8 @@ personal sideloading when organization publication fails.
 
 ## Source versus historical local artifacts
 
-This committed source includes public-safe fixtures/documentation and the
-portable packaging recipe. It is not asserted to be byte-identical to the
+This committed source includes public-safe fixtures and documentation.
+It is not asserted to be byte-identical to the
 historical local `-spopublish.20261020.3` artifact series. Those immutable
 tarballs, original local provenance snapshots and live diagnostic evidence are
 not part of this branch. Build a new release identity from this checkout;
