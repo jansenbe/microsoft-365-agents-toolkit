@@ -14,6 +14,11 @@ import { packageError } from "../deploy/spfx/utility/packageError";
 import { DriverContext } from "../interface/commonArgs";
 import { prepareAgentPublication } from "./preparedPublication";
 import { PublishAppPackageDriver } from "./publishAppPackage";
+import {
+  PreparedSharePointPublication,
+  publishLineage,
+  verifyPreparedFiles,
+} from "./publishPreparation";
 
 export class CombinedPublishError extends UserError {
   constructor(
@@ -42,12 +47,18 @@ export async function publishWithSharePoint(
   context: DriverContext,
   publisher: PublishAppPackageDriver,
   validatedAgentHash: string,
-  expectedTenantId?: string
+  expectedTenantId?: string,
+  preparation?: PreparedSharePointPublication
 ): Promise<Result<CombinedPublishResult, FxError>> {
   if (expectedTenantId !== undefined && !guidPattern.test(expectedTenantId)) {
     return err(packageError("ExpectedTenantMismatch"));
   }
-  const prepared = await prepareAgentPublication(appPackagePath, context);
+  const prepared = await prepareAgentPublication(
+    appPackagePath,
+    context,
+    preparation?.catalog,
+    preparation?.appPackageBytes
+  );
   if (prepared.isErr()) return err(prepared.error);
   const agent = prepared.value;
   if (
@@ -79,6 +90,7 @@ export async function publishWithSharePoint(
       version: agent.version,
       sha256: agent.sha256,
     },
+    ...(preparation ? { projectPath: context.projectPath, lineage: preparation.lineage } : {}),
   };
   const fail = (cause: FxError): Result<CombinedPublishResult, FxError> =>
     err(new CombinedPublishError(result, cause));
@@ -89,7 +101,7 @@ export async function publishWithSharePoint(
       temporary,
       JSON.stringify(
         {
-          schemaVersion: 1,
+          schemaVersion: preparation ? 2 : 1,
           objectId: agent.identity.objectId,
           ...result,
         },
@@ -116,7 +128,7 @@ export async function publishWithSharePoint(
     if (previous !== undefined) {
       if (
         !record(previous) ||
-        previous.schemaVersion !== 1 ||
+        (previous.schemaVersion !== 1 && previous.schemaVersion !== 2) ||
         previous.tenantId !== result.tenantId ||
         previous.objectId !== agent.identity.objectId ||
         !record(previous.sharePoint) ||
@@ -124,6 +136,24 @@ export async function publishWithSharePoint(
         previous.sharePoint.productId !== pkg.productId
       ) {
         return fail(packageError("RecoveryInvalid"));
+      }
+      if (previous.schemaVersion === 2) {
+        const priorLineage = publishLineage(previous.lineage);
+        if (
+          !priorLineage ||
+          previous.projectPath !== context.projectPath ||
+          priorLineage.derivedSharePointSha256 !== previous.sharePoint.sha256 ||
+          priorLineage.finalAppSha256 !== previous.agent.sha256
+        ) {
+          return fail(packageError("RecoveryInvalid"));
+        }
+        if (
+          !preparation ||
+          (previous.agent.sha256 === agent.sha256 &&
+            JSON.stringify(priorLineage) !== JSON.stringify(preparation.lineage))
+        ) {
+          return fail(packageError("RecoveryRequired"));
+        }
       }
       const oldAgent = previous.agent;
       if (
@@ -156,7 +186,7 @@ export async function publishWithSharePoint(
       }
     }
     const service = new SharePointPackageService(context);
-    const sharePoint = await service.prepare(pkg, agent.identity);
+    const sharePoint = await service.prepare(pkg, agent.identity, preparation?.catalog);
     if (sharePoint.isErr()) return fail(sharePoint.error);
     result.sharePoint = sharePoint.value.result;
     if (reconcileAgent) {
@@ -178,6 +208,12 @@ export async function publishWithSharePoint(
       );
       if (confirmation.isErr()) return fail(confirmation.error);
     }
+    if (preparation) {
+      const current = await service.revalidate(preparation.catalog);
+      if (current.isErr()) return fail(current.error);
+      const unchanged = await verifyPreparedFiles(preparation, context);
+      if (unchanged.isErr()) return fail(unchanged.error);
+    }
     await save();
     const deployed = await service.deploy(sharePoint.value, async (state) => {
       result.sharePoint = state;
@@ -198,6 +234,12 @@ export async function publishWithSharePoint(
       result.agent.stage = "cancelled";
       await save();
       return fail(new UserCancelError("SharePointPublish"));
+    }
+    if (preparation) {
+      const selected = await service.revalidate(preparation.catalog);
+      if (selected.isErr()) return fail(selected.error);
+      const unchanged = await verifyPreparedFiles(preparation, context);
+      if (unchanged.isErr()) return fail(unchanged.error);
     }
     const current = await agent.graph.getPublishSnapshot(
       agent.token,

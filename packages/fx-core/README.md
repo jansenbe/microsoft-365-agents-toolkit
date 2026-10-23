@@ -41,6 +41,30 @@ the package, product/manifest ID, version and intended action. Noninteractive
 updates remain refused. Submission is for organization review, not personal
 sideloading, approval or installation.
 
+### Catalog-dependent local preparation
+
+`FxCoreClient.publish(inputs, { signal, prepareSharePointPublish })` can await a
+typed host finalizer after read-only account/catalog discovery and before final
+application validation. The original `sharepoint-package-file`,
+`expectedSharePointSha256`, tenant constraint and project remain authoritative.
+The callback receives only readonly identity/catalog metadata and cancellation;
+tokens and clients stay inside the operation.
+
+The host returns final application and derived SharePoint package paths plus
+`SharePointPublishLineage`. ATK validates the final snapshots, rechecks the
+selected context and inputs before writes, and uses its existing confirmation,
+deployment, verification and organization submission flow. It does not extract
+or transform embedded packages. The callback must return an error for unresolved
+or invalid host content, never a fallback artifact.
+
+Keep staged files alive until the publish promise settles, even after abort.
+Partial errors retain `publishResult.lineage` and the original `projectPath`;
+the original project's existing recovery location remains the sole journal.
+Prepared journals use schema 2 and old schema-1 unknown submissions still block
+replay. A prepared journal cannot be downgraded by omitting the finalizer.
+See the [preparation contract](../../docs/03-specs/operations/publishing/sharepoint-package.md#host-preparation)
+for the exact public types, digest validation and host-attested provenance boundary.
+
 ## Data Collection.
 
 The software may collect information about you and your use of the software and send it to Microsoft. Microsoft may use this information to provide services and improve our products and services. You may turn off the telemetry as described in the repository. There are also some features in the software that may enable you and Microsoft to collect data from users of your applications. If you use these features, you must comply with applicable law, including providing appropriate notices to users of your applications together with a copy of Microsoft's privacy statement. Our privacy statement is located at https://go.microsoft.com/fwlink/?LinkID=824704. You can learn more about data collection and use in the help documentation and our privacy statement. Your use of the software operates as your consent to these practices.

@@ -1,4 +1,8 @@
 {
+  "publish.sharepoint.PreparationRequiresSharePoint": "A publish preparation callback requires an original SharePoint package input.",
+  "publish.sharepoint.InvalidPreparation": "The prepared artifact paths, lineage, digests or SharePoint identity do not match the selected original package. No publication was started.",
+  "publish.sharepoint.PreparationFailed": "Local publication preparation failed. Keep the selected inputs and inspect the host preparation error before retrying; no publication was started.",
+  "publish.sharepoint.PreparedPackageChanged": "An original or prepared publication package changed after selection. Keep the selected and staged artifacts stable until publication settles.",
   "publish.sharepoint.InvalidPackage": "Provide a valid standalone client-side .sppkg package (maximum 100 MiB) with one safe AppManifest.xml.",
   "publish.sharepoint.UnreadablePackage": "The SharePoint package cannot be read. Check --sharepoint-package-file relative to --folder.",
   "publish.sharepoint.ChangedPackage": "The package changed while being read. Finish building it before publishing.",

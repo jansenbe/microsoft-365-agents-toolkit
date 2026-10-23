@@ -46,16 +46,14 @@ function inspectionError(reason: SharePointPackageReadErrorCode): UserError {
   });
 }
 
-export async function readSharePointPackage(
+export async function readPackageSnapshot(
   file: string,
-  projectPath: string,
   options: SharePointPackageReadOptions = {}
-): Promise<Result<SharePointPackage, FxError>> {
+): Promise<Result<Buffer, FxError>> {
   const packageError = options.errorFactory ?? inspectionError;
-  if (path.extname(file).toLowerCase() !== ".sppkg") return err(packageError("InvalidPackage"));
   let bytes: Buffer;
   try {
-    const handle = await fs.open(path.resolve(projectPath, file), "r");
+    const handle = await fs.open(file, "r");
     try {
       const stat = await fs.fstat(handle);
       if (!stat.isFile() || stat.size === 0 || stat.size > maxPackageBytes) {
@@ -79,6 +77,19 @@ export async function readSharePointPackage(
   } catch {
     return err(packageError("UnreadablePackage"));
   }
+  return ok(bytes);
+}
+
+export async function readSharePointPackage(
+  file: string,
+  projectPath: string,
+  options: SharePointPackageReadOptions = {}
+): Promise<Result<SharePointPackage, FxError>> {
+  const packageError = options.errorFactory ?? inspectionError;
+  if (path.extname(file).toLowerCase() !== ".sppkg") return err(packageError("InvalidPackage"));
+  const snapshot = await readPackageSnapshot(path.resolve(projectPath, file), options);
+  if (snapshot.isErr()) return err(snapshot.error);
+  const bytes = snapshot.value;
   try {
     const entries = new AdmZip(bytes).getEntries();
     const names = new Set<string>();

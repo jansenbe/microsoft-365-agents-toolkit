@@ -154,7 +154,7 @@ export class ValidateAppPackageDriver implements StepDriver {
     if (!(await fs.pathExists(appPackagePath))) {
       return err(new FileNotFoundError(actionName, appPackagePath));
     }
-    const archivedFile = await fs.readFile(appPackagePath);
+    const archivedFile = args.appPackageBytes ?? (await fs.readFile(appPackagePath));
 
     const zipEntries = new AdmZip(archivedFile).getEntries();
     const manifestFile = zipEntries.find((x) => x.entryName === Constants.MANIFEST_FILE);

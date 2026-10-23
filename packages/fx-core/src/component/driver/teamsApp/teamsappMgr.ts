@@ -5,6 +5,7 @@ import {
   CombinedPublishResult,
   FxError,
   Result,
+  SharePointPublishPreparer,
   TeamsAppInputs,
   TeamsAppManifest,
   err,
@@ -56,6 +57,7 @@ import {
 } from "../deploy/spfx/utility/packageFile";
 import { publishWithSharePoint } from "./sharePointPublish";
 import { packageError } from "../deploy/spfx/utility/packageError";
+import { PreparedSharePointPublication, finalizeSharePointPublication } from "./publishPreparation";
 
 export const teamsAppMgrDeps = {
   runForTypeSpecProject,
@@ -336,12 +338,19 @@ class TeamsAppMgr {
   }
 
   async publishTeamsApp(
-    inputs: TeamsAppInputs
+    inputs: TeamsAppInputs,
+    prepare?: SharePointPublishPreparer
   ): Promise<Result<undefined | CombinedPublishResult, FxError>> {
     if ((inputs.abortSignal as AbortSignal | undefined)?.aborted) {
       return err(new UserCancelError("TeamsAppMgr"));
     }
+    if (prepare && inputs["sharepoint-package-file"] === undefined) {
+      return err(packageError("PreparationRequiresSharePoint"));
+    }
+    const driverContext: DriverContext = createDriverContext(inputs);
+    if (prepare) driverContext.projectPath = path.resolve(inputs.projectPath);
     let sharePointPackage: SharePointPackage | undefined;
+    let preparation: PreparedSharePointPublication | undefined;
     if (inputs["sharepoint-package-file"] !== undefined) {
       if (
         inputs.expectedSharePointSha256 !== undefined &&
@@ -362,6 +371,18 @@ class TeamsAppMgr {
       ) {
         return err(packageError("ExpectedPackageMismatch"));
       }
+      if (prepare) {
+        const finalized = await finalizeSharePointPublication(
+          inputs,
+          sharePointPackage,
+          prepare,
+          driverContext
+        );
+        if (finalized.isErr()) return err(finalized.error);
+        preparation = finalized.value;
+        sharePointPackage = preparation.package;
+        inputs["package-file"] = preparation.appPackagePath;
+      }
       if (inputs["package-file"])
         inputs["package-file"] = path.resolve(inputs.projectPath, inputs["package-file"]);
     }
@@ -376,15 +397,15 @@ class TeamsAppMgr {
 
     const appPackageFile = inputs["package-file"] as string;
 
-    const driverContext: DriverContext = createDriverContext(inputs);
-    const validatedAgentHash = sharePointPackage
-      ? sha256(await fs.readFile(appPackageFile))
-      : undefined;
+    const validatedAgentHash =
+      preparation?.lineage.finalAppSha256 ??
+      (sharePointPackage ? sha256(await fs.readFile(appPackageFile)) : undefined);
 
     // 2. validate against app package
     const args: ValidateAppPackageArgs = {
       appPackagePath: appPackageFile,
       showMessage: true,
+      ...(preparation ? { appPackageBytes: preparation.appPackageBytes } : {}),
     };
     const driver: ValidateAppPackageDriver = Container.get("teamsApp/validateAppPackage");
     const validateRes = (await driver.execute(args, driverContext)).result;
@@ -408,7 +429,8 @@ class TeamsAppMgr {
         driverContext,
         publishDriver,
         validatedAgentHash,
-        inputs.expectedTenantId
+        inputs.expectedTenantId,
+        preparation
       );
     }
     const updateRes = (await publishDriver.execute(publishArgs, driverContext)).result;

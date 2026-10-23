@@ -7,7 +7,7 @@ import fs from "fs-extra";
 import { GraphClient, PublishCatalogSnapshot } from "../../../client/graphClient";
 import { GraphTeamsAppCatalogReadWriteScopes } from "../../../common/constants";
 import { UserCancelError } from "../../../error/common";
-import { PublishIdentity } from "../deploy/spfx/sharePointPackage";
+import { PreparedSharePointCatalog, PublishIdentity } from "../deploy/spfx/sharePointPackage";
 import { remotePublishError } from "../../../error/publish";
 import { guidPattern, maxPackageBytes, record, sha256 } from "../deploy/spfx/utility/packageFile";
 import { packageError } from "../deploy/spfx/utility/packageError";
@@ -27,11 +27,13 @@ export interface PreparedAgentPublication {
 
 export async function prepareAgentPublication(
   file: string,
-  context: DriverContext
+  context: DriverContext,
+  catalog?: PreparedSharePointCatalog,
+  snapshotBytes?: Buffer
 ): Promise<Result<PreparedAgentPublication, FxError>> {
   if (context.signal?.aborted) return err(new UserCancelError("SharePointPublish"));
   try {
-    const bytes = await fs.readFile(file);
+    const bytes = snapshotBytes ?? (await fs.readFile(file));
     if (bytes.length > maxPackageBytes) return err(packageError("AgentPreflight"));
     const entries = new AdmZip(bytes).getEntries();
     const manifests = entries.filter((entry) => entry.entryName === "manifest.json");
@@ -59,29 +61,31 @@ export async function prepareAgentPublication(
         }
       }
     }
-    const token = await context.m365TokenProvider.getAccessToken({
-      scopes: GraphTeamsAppCatalogReadWriteScopes,
-    });
+    const token = catalog
+      ? ok(catalog.graphToken)
+      : await context.m365TokenProvider.getAccessToken({
+          scopes: GraphTeamsAppCatalogReadWriteScopes,
+        });
     if (token.isErr()) return err(token.error);
-    const claims = await context.m365TokenProvider.getJsonObject({
-      scopes: GraphTeamsAppCatalogReadWriteScopes,
-    });
-    if (claims.isErr()) return err(claims.error);
-    if (
-      !record(claims.value) ||
-      typeof claims.value.tid !== "string" ||
-      typeof claims.value.oid !== "string" ||
-      !guidPattern.test(claims.value.tid) ||
-      !guidPattern.test(claims.value.oid)
-    )
-      return err(packageError("TenantMismatch"));
-    if (
-      claims.value.aud !== "00000003-0000-0000-c000-000000000000" &&
-      claims.value.aud !== "https://graph.microsoft.com"
-    ) {
-      return err(packageError("TenantMismatch"));
+    let identity = catalog?.identity;
+    if (!identity) {
+      const claims = await context.m365TokenProvider.getJsonObject({
+        scopes: GraphTeamsAppCatalogReadWriteScopes,
+      });
+      if (claims.isErr()) return err(claims.error);
+      if (
+        !record(claims.value) ||
+        typeof claims.value.tid !== "string" ||
+        typeof claims.value.oid !== "string" ||
+        !guidPattern.test(claims.value.tid) ||
+        !guidPattern.test(claims.value.oid) ||
+        (claims.value.aud !== "00000003-0000-0000-c000-000000000000" &&
+          claims.value.aud !== "https://graph.microsoft.com")
+      ) {
+        return err(packageError("TenantMismatch"));
+      }
+      identity = { tenantId: claims.value.tid, objectId: claims.value.oid };
     }
-    const identity = { tenantId: claims.value.tid, objectId: claims.value.oid };
     const graph = new GraphClient(context.m365TokenProvider, context.logProvider);
     const snapshot = await graph.getPublishSnapshot(token.value, manifest.id, context.signal);
     return ok({

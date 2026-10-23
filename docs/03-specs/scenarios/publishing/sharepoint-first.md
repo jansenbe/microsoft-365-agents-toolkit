@@ -22,12 +22,14 @@
 | PUB-05 | L2 | surface | required-local | built CLI | Help exposes the independent flag; invalid local input exits unsuccessfully without authentication/mutation. |
 | PUB-06 | L2 | CLI-E2E | explicit approval required | selected tenant/artifacts | Real combined submission and approved update/failure recovery. Not claimed by local mocks. |
 | PUB-07 | L1 | scenario | required | manager + HTTP + journal | Agent catalog read/submission errors identify the Graph stage and retain bounded, sanitized status, service code/message, request ID and transport code. A definitive submission rejection preserves verified SharePoint and agent `failed`; a timeout remains `unknownOutcome`, is recorded, and cannot cause a blind retry. No raw request, tokens, authentication URLs or response bodies enter diagnostics. |
+| PUB-08 | L1 | scenario | required | public SDK + finalizer + HTTP + journal | An in-process host resolves catalog-dependent content before final validation using the preparation contract; the final derived SharePoint bytes are verified before the final agent ZIP is submitted, while lineage and recovery stay anchored to the original project. |
 
 ## Flow
 
 ```mermaid
 flowchart TD
-  A[Prepare and validate BOTH packages] --> B[Readiness and confirmations]
+  P[Optional SDK host preparation contract] --> A[Prepare and validate BOTH final packages]
+  A --> B[Readiness and confirmations]
   B --> C[Upload / deploy / VERIFY SharePoint]
   C --> D{Verified and not cancelled?}
   D -->|yes| E[Normal organization submission for review]

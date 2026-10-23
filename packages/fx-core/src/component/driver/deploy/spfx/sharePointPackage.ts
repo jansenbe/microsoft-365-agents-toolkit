@@ -29,6 +29,16 @@ export interface PublishIdentity {
   objectId: string;
 }
 
+/** Operation-local authorization state, never exposed to a host finalizer. */
+export interface PreparedSharePointCatalog {
+  identity: PublishIdentity;
+  graphToken: string;
+  token: string;
+  origin: string;
+  catalogUrl: string;
+  client: SPOClient;
+}
+
 export interface PreparedSharePointDeployment {
   package: SharePointPackage;
   client: SPOClient;
@@ -77,10 +87,10 @@ export class SharePointPackageService {
       setTimeout(milliseconds, undefined, { signal: context.signal })
   ) {}
 
-  public async prepare(
-    pkg: SharePointPackage,
-    identity: PublishIdentity
-  ): Promise<Result<PreparedSharePointDeployment, FxError>> {
+  public async discover(
+    identity?: PublishIdentity,
+    expectedTenantId?: string
+  ): Promise<Result<PreparedSharePointCatalog, FxError>> {
     const { m365TokenProvider, signal } = this.context;
     if (signal?.aborted) return err(new UserCancelError("SharePointPublish"));
     try {
@@ -95,11 +105,22 @@ export class SharePointPackageService {
       });
       if (claims.isErr()) return err(claims.error);
       if (
-        !this.sameIdentity(claims.value, identity) ||
         !record(claims.value) ||
+        typeof claims.value.tid !== "string" ||
+        typeof claims.value.oid !== "string" ||
+        !guidPattern.test(claims.value.tid) ||
+        !guidPattern.test(claims.value.oid) ||
+        (identity !== undefined && !this.sameIdentity(claims.value, identity)) ||
         (claims.value.aud !== "00000003-0000-0000-c000-000000000000" && claims.value.aud !== graph)
       ) {
         return err(packageError("TenantMismatch"));
+      }
+      const selected = { tenantId: claims.value.tid, objectId: claims.value.oid };
+      if (
+        expectedTenantId !== undefined &&
+        selected.tenantId.toLowerCase() !== expectedTenantId.toLowerCase()
+      ) {
+        return err(packageError("ExpectedTenantMismatch"));
       }
       // A real read establishes site-read readiness without silently requesting Sites.Read.All.
       const root = await axios.get<unknown>(`${graph}/v1.0/sites/root?$select=webUrl`, {
@@ -129,7 +150,7 @@ export class SharePointPackageService {
       });
       if (spoClaims.isErr()) return err(spoClaims.error);
       if (
-        !this.sameIdentity(spoClaims.value, identity) ||
+        !this.sameIdentity(spoClaims.value, selected) ||
         !record(spoClaims.value) ||
         (spoClaims.value.aud !== "00000003-0000-0ff1-ce00-000000000000" &&
           spoClaims.value.aud !== origin.origin)
@@ -143,19 +164,87 @@ export class SharePointPackageService {
       if (url.origin !== origin.origin || url.username || url.password || url.search || url.hash) {
         return err(packageError("UnsupportedCatalog"));
       }
-      const client = new SPOClient(url.href.replace(/\/$/, ""), signal);
-      const existing = await this.read(() => client.getApp(spo.value, pkg.productId));
+      if (signal?.aborted) return err(new UserCancelError("SharePointPublish"));
+      const catalogUrl = url.href.replace(/\/$/, "");
+      return ok({
+        identity: selected,
+        graphToken: token.value,
+        token: spo.value,
+        origin: origin.origin,
+        catalogUrl,
+        client: new SPOClient(catalogUrl, signal),
+      });
+    } catch (error) {
+      return err(remotePublishError(error));
+    }
+  }
+
+  public async revalidate(catalog: PreparedSharePointCatalog): Promise<Result<undefined, FxError>> {
+    if (this.context.signal?.aborted) return err(new UserCancelError("SharePointPublish"));
+    try {
+      for (const { scopes, audiences } of [
+        {
+          scopes: GraphTeamsAppCatalogReadWriteScopes,
+          audiences: ["00000003-0000-0000-c000-000000000000", "https://graph.microsoft.com"],
+        },
+        {
+          scopes: SPFxScopes(catalog.origin),
+          audiences: ["00000003-0000-0ff1-ce00-000000000000", catalog.origin],
+        },
+      ]) {
+        const claims = await this.context.m365TokenProvider.getJsonObject({ scopes });
+        if (claims.isErr()) return err(claims.error);
+        if (
+          !this.sameIdentity(claims.value, catalog.identity) ||
+          !record(claims.value) ||
+          typeof claims.value.aud !== "string" ||
+          !audiences.includes(claims.value.aud)
+        ) {
+          return err(packageError("TenantMismatch"));
+        }
+      }
+      const current = await new SPOClient(catalog.origin, this.context.signal).getAppCatalogSite(
+        catalog.token
+      );
+      if (!current || new URL(current).href.replace(/\/$/, "") !== catalog.catalogUrl) {
+        return err(packageError("CatalogIdentity"));
+      }
+      if (this.context.signal?.aborted) return err(new UserCancelError("SharePointPublish"));
+      return ok(undefined);
+    } catch (error) {
+      return err(remotePublishError(error));
+    }
+  }
+
+  public async prepare(
+    pkg: SharePointPackage,
+    identity: PublishIdentity,
+    catalog?: PreparedSharePointCatalog
+  ): Promise<Result<PreparedSharePointDeployment, FxError>> {
+    if (this.context.signal?.aborted) return err(new UserCancelError("SharePointPublish"));
+    try {
+      const discovered = catalog ? ok(catalog) : await this.discover(identity);
+      if (discovered.isErr()) return err(discovered.error);
+      const target = discovered.value;
+      if (
+        target.identity.tenantId !== identity.tenantId ||
+        target.identity.objectId !== identity.objectId
+      ) {
+        return err(packageError("TenantMismatch"));
+      }
+      const { client, token } = target;
+      const existing = await this.read(() => client.getApp(token, pkg.productId));
       const result: SharePointPackageResult = {
         stage: "notStarted",
         productId: pkg.productId,
         version: pkg.version,
         sha256: pkg.sha256,
-        catalogUrl: url.href.replace(/\/$/, ""),
+        catalogUrl: target.catalogUrl,
       };
       const prepared: PreparedSharePointDeployment = {
         package: pkg,
         client,
-        token: spo.value,
+        token,
         result,
         identical: false,
         overwrite: false,
@@ -172,9 +261,9 @@ export class SharePointPackageService {
           next.map((part, index) => part - previous[index]).find((part) => part !== 0) ?? 0;
         if (difference < 0) return err(packageError("Downgrade"));
         result.catalogItemId = id;
-        const name = await this.read(() => client.getPackageName(spo.value, id));
+        const name = await this.read(() => client.getPackageName(token, id));
         if (name !== pkg.fileName) return err(packageError("FilenameCollision"));
-        const remoteBytes = await this.read(() => client.downloadPackage(spo.value, id));
+        const remoteBytes = await this.read(() => client.downloadPackage(token, id));
         prepared.previousHash = sha256(remoteBytes);
         prepared.previousVersion = version;
         prepared.identical = prepared.previousHash === pkg.sha256;

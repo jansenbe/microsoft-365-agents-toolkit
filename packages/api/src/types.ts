@@ -10,6 +10,8 @@ import {
   IWebApplicationInfo,
 } from "@microsoft/app-manifest";
 import { Platform } from "./constants";
+import { Result } from "neverthrow";
+import { FxError } from "./error";
 
 /**
  * Definition of option item in single selection or multiple selection
@@ -186,6 +188,41 @@ export interface SharePointPackageResult {
   catalogItemId?: string;
 }
 
+export interface SharePointPublishPreparationContext {
+  readonly projectPath: string;
+  readonly tenantId: string;
+  readonly catalogUrl: string;
+  readonly originalSharePoint: {
+    readonly packagePath: string;
+    readonly productId: string;
+    readonly version: string;
+    readonly sha256: string;
+    readonly skipFeatureDeployment: boolean;
+  };
+  readonly signal?: AbortSignal;
+}
+
+/** Artifact hashes are verified by ATK; embedded selection/plugin provenance is host-attested. */
+export interface SharePointPublishLineage {
+  readonly schemaVersion: 1;
+  readonly originalSharePointSha256: string;
+  readonly transformationVersion: string;
+  readonly selectedEmbeddedPackage: string;
+  readonly extractedPluginSha256: string;
+  readonly derivedSharePointSha256: string;
+  readonly finalAppSha256: string;
+}
+
+export interface PreparedSharePointPublishArtifacts {
+  readonly sharePointPackagePath: string;
+  readonly appPackagePath: string;
+  readonly lineage: SharePointPublishLineage;
+}
+
+export type SharePointPublishPreparer = (
+  context: SharePointPublishPreparationContext
+) => Promise<Result<PreparedSharePointPublishArtifacts, FxError>>;
+
 export interface CombinedPublishResult {
   packagePath: string;
   tenantId: string;
@@ -199,6 +236,9 @@ export interface CombinedPublishResult {
     diagnostic?: PublishRequestDiagnostic;
   };
   recoveryFile: string;
+  /** Present for host-prepared publication; never replaced by the staging directory. */
+  projectPath?: string;
+  lineage?: SharePointPublishLineage;
 }
 
 /** Allowlisted, sanitized request evidence; never contains tokens or raw HTTP objects. */

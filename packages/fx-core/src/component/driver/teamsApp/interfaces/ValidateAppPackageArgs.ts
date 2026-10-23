@@ -10,6 +10,8 @@ export interface ValidateAppPackageArgs {
    * Teams app package path
    */
   appPackagePath: string;
+  /** Internal final snapshot shared with the prepared publisher. */
+  appPackageBytes?: Buffer;
   /**
    * Internal arguments
    * Show message for non-life cycle command

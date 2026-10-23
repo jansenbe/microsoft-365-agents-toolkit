@@ -45,6 +45,7 @@ decision. The format for a new ADR is defined inline below under
 | ADR-0024 | [Scaffold domain assets and expression ownership](ADR-0024-scaffold-domain-assets.md) | Accepted | Separate expression registration, externalize generation fragments, and replace comment-based OpenAPI YAML insertion. |
 | ADR-0025 | [Scaffolding extension ownership](ADR-0025-scaffold-extension-ownership.md) | Accepted | Inject DA services into domain steps, share pure capability declarations and selector presentation; refines ADR-0017's manifest injection boundary. |
 | ADR-0026 | [Scaffold I/O and provider contracts](ADR-0026-scaffold-io-and-provider-contracts.md) | Accepted | Repair file containment and collision handling, structured derived references, and OpenAPI listing/generation policy alignment. |
+| ADR-0027 | [Publish preparation boundary](ADR-0027-publish-preparation-boundary.md) | Accepted | User-approved minimal SDK seam for host-owned catalog-dependent package preparation. |
 
 > **Reading order vs. numeric order.** The Index is in **numeric order** —
 > the immutable, reservation-ordered ADR id is the anchor for every forward

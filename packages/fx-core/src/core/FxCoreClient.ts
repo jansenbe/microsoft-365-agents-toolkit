@@ -7,6 +7,7 @@ import {
   Inputs,
   InputsWithProjectPath,
   Result,
+  SharePointPublishPreparer,
   TeamsAppInputs,
   Tools,
   err,
@@ -33,6 +34,11 @@ export interface FxCoreExecutionOptions {
   signal?: AbortSignal;
 }
 
+export interface FxCorePublishOptions extends FxCoreExecutionOptions {
+  /** Finalizes local artifacts after verified read-only discovery; staging must outlive publish. */
+  prepareSharePointPublish?: SharePointPublishPreparer;
+}
+
 export interface FxCoreProvisionResult {
   outputs: Record<string, string>;
 }
@@ -47,6 +53,8 @@ export interface FxCorePublishResult {
   sharePoint?: CombinedPublishResult["sharePoint"];
   agent?: CombinedPublishResult["agent"];
   recoveryFile?: string;
+  projectPath?: string;
+  lineage?: CombinedPublishResult["lineage"];
 }
 
 export type FxCoreValidationSeverity = "error" | "warning" | "info";
@@ -125,7 +133,7 @@ export interface IFxCoreClient {
   ): Promise<Result<FxCorePackageResult, FxError>>;
   publish(
     inputs: TeamsAppInputs,
-    options?: FxCoreExecutionOptions
+    options?: FxCorePublishOptions
   ): Promise<Result<FxCorePublishResult, FxError>>;
   validate(
     inputs: TeamsAppInputs,
@@ -202,18 +210,31 @@ export class FxCoreClient implements IFxCoreClient {
 
   public async publish(
     inputs: TeamsAppInputs,
-    options?: FxCoreExecutionOptions
+    options?: FxCorePublishOptions
   ): Promise<Result<FxCorePublishResult, FxError>> {
     const cancelled = this.cancelled<FxCorePublishResult>(options?.signal);
     if (cancelled) return cancelled;
     const clientInputs = this.withSignal(inputs, options?.signal);
-    const result = await this.core.publishTeamsAppCLIV3(clientInputs);
+    const result = options?.prepareSharePointPublish
+      ? await this.publishPrepared(clientInputs, options.prepareSharePointPublish)
+      : await this.core.publishTeamsAppCLIV3(clientInputs);
     if (result.isErr()) return err(result.error);
     // A completed coordinated operation must not lose its durable side effects to a late abort.
     if (result.value) return ok(result.value);
     const afterOperation = this.cancelled<FxCorePublishResult>(options?.signal);
     if (afterOperation) return afterOperation;
     return ok({ packagePath: clientInputs["package-file"] as string });
+  }
+
+  private async publishPrepared(
+    inputs: TeamsAppInputs,
+    prepare: SharePointPublishPreparer
+  ): Promise<Result<undefined | CombinedPublishResult, FxError>> {
+    try {
+      return await teamsappMgr.publishTeamsApp(inputs, prepare);
+    } catch (error) {
+      return err(assembleError(error, "FxCoreClient"));
+    }
   }
 
   public async validate(
