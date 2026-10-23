@@ -21,18 +21,13 @@ pnpm --filter templates build
 pnpm --filter @microsoft/teamsfx-core exec tsc -p . --incremental
 pnpm --filter @microsoft/m365agentstoolkit-cli build
 
-$atk = Join-Path $repo 'packages\cli\atk-local.ps1'
-& $atk publish --help --telemetry false
+$atk = Join-Path $repo 'packages\cli\cli.js'
+node $atk publish --help --telemetry false
 ```
 
-The shim invokes `packages\cli\cli.js`, which loads `packages\cli\lib\index.js`.
+The Node entry point `packages\cli\cli.js` loads `packages\cli\lib\index.js`.
 The shared SDK is `packages\fx-core\build\index.js`; public contracts are in
-`packages\api\build\index.js`. If PowerShell script execution is restricted, use
-the Node entry point directly:
-
-```powershell
-node (Join-Path $repo 'packages\cli\cli.js') publish --help --telemetry false
-```
+`packages\api\build\index.js`.
 
 ## Safe local checks
 
@@ -40,7 +35,7 @@ The following command must fail for the missing SharePoint file, before sign-in
 or publication:
 
 ```powershell
-& $atk publish --folder $repo `
+node $atk publish --folder $repo `
   --package-file .local\not-selected.zip `
   --sharepoint-package-file .local\missing.sppkg `
   --interactive false --telemetry false
@@ -76,8 +71,8 @@ action; replace the tenant placeholder with the intended tenant GUID:
 
 ```powershell
 $tenantId = '<selected-tenant-guid>'
-& $atk auth login m365 --tenant $tenantId --interactive false --telemetry false
-& $atk auth show m365 --telemetry false
+node $atk auth login m365 --tenant $tenantId --interactive false --telemetry false
+node $atk auth show m365 --telemetry false
 ```
 
 `--interactive false` preserves the explicit tenant option through the existing
@@ -94,7 +89,7 @@ command. Do not run it first merely to test the environment.
 ```powershell
 $project = (Resolve-Path '<selected-project-folder>').Path
 $agentZip = Join-Path $project 'appPackage\build\appPackage.dev.zip'
-& $atk publish --folder $project --package-file $agentZip `
+node $atk publish --folder $project --package-file $agentZip `
   --interactive false --telemetry false
 ```
 
@@ -110,7 +105,7 @@ resolve against `--folder`; absolute paths are also accepted.
 
 ```powershell
 $sppkg = Join-Path $project 'sharepoint\solution\component.sppkg'
-& $atk publish --folder $project --package-file $agentZip `
+node $atk publish --folder $project --package-file $agentZip `
   --sharepoint-package-file $sppkg --interactive true --telemetry false
 ```
 
@@ -118,7 +113,7 @@ Alternatively, let ordinary ATK packaging prepare the agent from the project
 manifest while supplying an already-built SharePoint package:
 
 ```powershell
-& $atk publish --folder $project --env dev `
+node $atk publish --folder $project --env dev `
   --sharepoint-package-file .\sharepoint\solution\component.sppkg `
   --interactive true --telemetry false
 ```
