@@ -137,6 +137,9 @@ export async function publishWithSharePoint(
       ) {
         return fail(packageError("RecoveryInvalid"));
       }
+      if (previous.agent.stage === "unknownOutcome") {
+        result.agent.stage = "unknownOutcome";
+      }
       if (previous.schemaVersion === 2) {
         const priorLineage = publishLineage(previous.lineage);
         if (

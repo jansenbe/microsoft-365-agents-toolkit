@@ -527,29 +527,45 @@ describe("public publication preparation", () => {
     }
   );
 
-  it.each([1, 2])("PREP-06: schema %s unknown submission blocks replay", async (schemaVersion) => {
-    const journal = path.join(
-      folder,
-      ".local",
-      "sharepoint-publish",
-      `${sha256(Buffer.from(`${tenantId}:${productId}`))}.json`
-    );
-    await fs.outputJson(journal, {
-      schemaVersion,
-      projectPath: folder,
-      lineage: schemaVersion === 2 ? artifacts.lineage : undefined,
-      tenantId,
-      objectId: productId,
-      sharePoint: { productId, sha256: artifacts.lineage.derivedSharePointSha256 },
-      agent: { stage: "unknownOutcome", sha256: artifacts.lineage.finalAppSha256 },
-    });
-    const previous = await fs.readFile(journal);
-    const result = await new FxCoreClient(tools).publish(inputs(), {
-      prepareSharePointPublish: async () => ok(artifacts),
-    });
-    expect(result.isErr()).toBe(true);
-    if (result.isErr()) expect(result.error.message).toContain("previous agent submission");
-    expect(http.history.post).toHaveLength(0);
-    expect(await fs.readFile(journal)).toEqual(previous);
-  });
+  it.each([
+    [1, false],
+    [2, false],
+    [2, true],
+  ] as const)(
+    "PREP-06: schema %s unknown submission blocks replay with changed lineage %s",
+    async (schemaVersion, changedLineage) => {
+      const journal = path.join(
+        folder,
+        ".local",
+        "sharepoint-publish",
+        `${sha256(Buffer.from(`${tenantId}:${productId}`))}.json`
+      );
+      await fs.outputJson(journal, {
+        schemaVersion,
+        projectPath: folder,
+        lineage:
+          schemaVersion === 2
+            ? {
+                ...artifacts.lineage,
+                transformationVersion: changedLineage ? "prior-v0" : "test-v1",
+              }
+            : undefined,
+        tenantId,
+        objectId: productId,
+        sharePoint: { productId, sha256: artifacts.lineage.derivedSharePointSha256 },
+        agent: { stage: "unknownOutcome", sha256: artifacts.lineage.finalAppSha256 },
+      });
+      const previous = await fs.readFile(journal);
+      const result = await new FxCoreClient(tools).publish(inputs(), {
+        prepareSharePointPublish: async () => ok(artifacts),
+      });
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) expect(result.error.message).toContain("previous agent submission");
+      if (result.isErr() && result.error instanceof CombinedPublishError) {
+        expect(result.error.publishResult.agent.stage).toBe("unknownOutcome");
+      }
+      expect(http.history.post).toHaveLength(0);
+      expect(await fs.readFile(journal)).toEqual(previous);
+    }
+  );
 });
